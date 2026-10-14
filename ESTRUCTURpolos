@@ -1,0 +1,222 @@
+workspace "IoT Solution - Examen UPC" "Plantilla C4 Model" {
+
+    model {
+
+        // ======================================
+        // 1. USUARIOS
+        // CAMBIAR nombres segun el caso
+        // ======================================
+
+        usuario = person "Operador" "Monitorea los dispositivos IoT."
+
+        administrador = person "Administrador" "Supervisa y administra el sistema."
+
+        tecnico = person "Tecnico" "Realiza diagnosticos y mantenimiento."
+
+
+        // ======================================
+        // 2. SISTEMAS EXTERNOS
+        // CAMBIAR o eliminar si no existen
+        // ======================================
+
+        autenticacion = softwareSystem "Servicio de Autenticacion" "Gestiona identidad y acceso." {
+            tags "Externo"
+        }
+
+        sistemaExterno = softwareSystem "Sistema Externo" "Proporciona servicios de integracion." {
+            tags "Externo"
+        }
+
+
+        // ======================================
+        // 3. SISTEMA PRINCIPAL
+        // CAMBIAR nombre de la plataforma
+        // ======================================
+
+        sistema = softwareSystem "PLATAFORMA IOT" "Sistema de monitoreo y gestion IoT." {
+
+            // -------- EDGE LAYER --------
+
+            dispositivo = container "Dispositivo IoT" "Captura datos de sensores y controla actuadores." "ESP32 / C++" {
+                tags "Edge"
+            }
+
+            edgeGateway = container "Edge Gateway" "Recibe y procesa datos de dispositivos." "Edge Computing" {
+                tags "Edge"
+            }
+
+
+            // -------- APLICACIONES --------
+
+            appMovil = container "Aplicacion Movil" "Permite monitoreo y recepcion de alertas." "Mobile App" {
+                tags "Aplicacion"
+            }
+
+            appWeb = container "Dashboard Web" "Permite administracion y supervision." "Web Application" {
+                tags "Aplicacion"
+            }
+
+
+            // -------- API GATEWAYS --------
+
+            apiClientes = container "API Gateway Clientes" "Recibe solicitudes de aplicaciones." "REST API" {
+                tags "Gateway"
+            }
+
+            apiEdge = container "API Gateway Edge" "Recibe telemetria del Edge Gateway." "REST API" {
+                tags "Gateway"
+            }
+
+
+            // -------- BACKEND --------
+
+            monitoreo = container "Monitoring Service" "Procesa lecturas y gestiona el monitoreo." "Backend Service" {
+                tags "Servicio"
+            }
+
+            gestion = container "Management Service" "Gestiona recursos y operaciones." "Backend Service" {
+                tags "Servicio"
+            }
+
+
+            // -------- BASES DE DATOS --------
+
+            dbTelemetria = container "Telemetry Database" "Almacena lecturas historicas." "InfluxDB" {
+                tags "BaseDatos"
+            }
+
+            dbGestion = container "Management Database" "Almacena informacion operativa." "PostgreSQL" {
+                tags "BaseDatos"
+            }
+
+        }
+
+
+        // ======================================
+        // 4. RELACIONES DE USUARIOS
+        // ======================================
+
+        usuario -> appMovil "Consulta datos y alertas"
+
+        administrador -> appWeb "Administra la plataforma"
+
+        tecnico -> appWeb "Consulta diagnosticos"
+
+
+        // ======================================
+        // 5. RELACIONES EDGE
+        // ======================================
+
+        dispositivo -> edgeGateway "Envia mediciones" "REST"
+
+        edgeGateway -> dispositivo "Envia comandos y respuestas" "REST"
+
+        edgeGateway -> apiEdge "Transmite telemetria" "HTTPS/REST"
+
+
+        // ======================================
+        // 6. RELACIONES APLICACIONES
+        // ======================================
+
+        appMovil -> apiClientes "Consulta informacion" "HTTPS/REST"
+
+        appWeb -> apiClientes "Gestiona recursos" "HTTPS/REST"
+
+
+        // ======================================
+        // 7. RELACIONES BACKEND
+        // ======================================
+
+        apiClientes -> monitoreo "Consulta mediciones" "REST"
+
+        apiClientes -> gestion "Gestiona operaciones" "REST"
+
+        apiEdge -> monitoreo "Entrega telemetria" "REST"
+
+
+        // ======================================
+        // 8. RELACIONES BASES DE DATOS
+        // ======================================
+
+        monitoreo -> dbTelemetria "Almacena y consulta lecturas"
+
+        gestion -> dbGestion "Almacena informacion"
+
+
+        // ======================================
+        // 9. SISTEMAS EXTERNOS
+        // ======================================
+
+        apiClientes -> autenticacion "Autentica usuarios" "REST"
+
+        apiEdge -> sistemaExterno "Integra telemetria" "REST"
+
+    }
+
+
+    // ======================================
+    // 10. DIAGRAMA C4 CONTAINERS
+    // ======================================
+
+    views {
+
+        container sistema "ContainerDiagram" {
+
+            include *
+
+            autoLayout lr
+
+        }
+
+
+        // ======================================
+        // 11. ESTILOS
+        // ======================================
+
+        styles {
+
+            element "Person" {
+                shape Person
+                background #084C61
+                color #FFFFFF
+            }
+
+            element "Software System" {
+                background #475569
+                color #FFFFFF
+            }
+
+            element "Externo" {
+                background #64748B
+                color #FFFFFF
+            }
+
+            element "Edge" {
+                background #0F766E
+                color #FFFFFF
+            }
+
+            element "Aplicacion" {
+                background #2563EB
+                color #FFFFFF
+            }
+
+            element "Gateway" {
+                background #7C3AED
+                color #FFFFFF
+            }
+
+            element "Servicio" {
+                background #0369A1
+                color #FFFFFF
+            }
+
+            element "BaseDatos" {
+                shape Cylinder
+                background #B45309
+                color #FFFFFF
+            }
+
+        }
+    }
+}

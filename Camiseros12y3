@@ -1,0 +1,6 @@
+Power Supply — Suministro de energía ¿Con qué energía funciona?
+Time-delay — Restricciones de tiempo ¿Qué tan rápido responde?
+Physical Layer –- ¿Qué dispositivos tiene el sistema, cuántos son y qué hace cada uno?
+Target Uncertainty -–¿Qué mide cada sensor y cuánto puede equivocarse al medir?
+Target Accuracy and Precision — ¿Qué tan correctamente y consistentemente deben actuar los actuadores?
+Processing Power — ¿Qué operaciones y algoritmos debe ejecutar el microcontrolador?

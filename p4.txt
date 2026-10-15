@@ -1,0 +1,172 @@
+
+workspace "Bigbelly" "C4 Container Diagram - Bigbelly iot" {
+
+    model {
+
+        recolector = person "Collection Crew" "Personal de recoleccion que utiliza CLEAN Mobile para consultar estaciones, recibir alertas y registrar recolecciones."
+        administrador = person "Municipal / Site Operator" "Administra estaciones, umbrales, rutas, frecuencias y reportes operativos."
+        tecnico = person "Technical Support Staff" "Supervisa alarmas, diagnostica fallas y gestiona intervenciones de mantenimiento."
+        crmStaff = person "CRM Staff" "Gestiona cuentas de clientes, contratos, incidencias comerciales y programas de sostenibilidad."
+
+        secureAuth = softwareSystem "Bigbelly SecureAuth" "Servicio corporativo de Identity and Access Management expuesto mediante APIs REST." {
+            tags "Externo"
+        }
+
+        iotCloud = softwareSystem "Bigbelly IoT Cloud Connect" "Sistema corporativo que centraliza la telemetria para monitoreo, analisis e investigacion." {
+            tags "Externo"
+        }
+
+        sistema = softwareSystem "Bigbelly Station Management" "Plataforma IoT para monitoreo, recoleccion, administracion y mantenimiento de estaciones inteligentes de residuos." {
+
+            bscu = container "Bigbelly Station Control Unit" "Controla sensores, pantalla LCD, LEDs y modos de operacion. Cada estacion puede tener una o mas BSCU." "ESP32 / Arduino C++" {
+                tags "Edge"
+            }
+
+            edgeConnector = container "Bigbelly Station Edge Connector" "Recibe telemetria de las BSCU, valida umbrales y devuelve thresholdLedState. Existe uno por estacion." "Edge Computing / REST API" {
+                tags "Edge"
+            }
+
+            cleanMobile = container "CLEAN Mobile" "Aplicacion del personal de recoleccion: estaciones, alertas, rutas, registros de recoleccion e incidencias." "Mobile Application" {
+                tags "Aplicacion"
+            }
+
+            webPlatform = container "Bigbelly Web Management" "Plataforma web para administracion municipal, soporte tecnico y operaciones CRM." "Web Application" {
+                tags "Aplicacion"
+            }
+
+            clientGateway = container "Client API Gateway" "Punto de entrada para aplicaciones web y moviles. Enruta solicitudes y aplica controles de acceso." "API Gateway / HTTPS REST" {
+                tags "Gateway"
+            }
+
+            edgeGateway = container "Edge API Gateway" "Punto de entrada para los Edge Connectors. Recibe telemetria y la deriva al servicio correspondiente." "API Gateway / HTTPS REST" {
+                tags "Gateway"
+            }
+
+            collectionService = container "Waste Collection & Route Management Service" "Gestiona recolecciones, ciclos de compactacion, alertas de llenado, rutas y cierre de recolecciones." "Java / Spring Boot" {
+                tags "Servicio"
+            }
+
+            telemetryService = container "Station & Telemetry Monitoring Service" "Procesa telemetria de estaciones, monitorea sensores, modos de operacion y condiciones de riesgo." "Java / Spring Boot" {
+                tags "Servicio"
+            }
+
+            billingService = container "Billing & Payment Service" "Gestiona contratos, tarifas, facturacion y procesamiento de pagos de clientes." "Java / Spring Boot" {
+                tags "Servicio"
+            }
+
+            administrationService = container "User & Site Administration Service" "Gestiona usuarios, perfiles, organizaciones, sitios y jerarquias de estaciones." "Java / Spring Boot" {
+                tags "Servicio"
+            }
+
+            supportService = container "Customer Support & CRM Service" "Gestiona tickets, incidencias tecnicas, reportes de vandalismo y programas comerciales." "Java / Spring Boot" {
+                tags "Servicio"
+            }
+
+            collectionDB = container "Collection Database" "Almacena rutas, recolecciones, operaciones e historiales asociados." "MongoDB" {
+                tags "BaseDatos"
+            }
+
+            telemetryDB = container "Telemetry Database" "Almacena mediciones, estados de estaciones, alarmas e historicos de telemetria." "MongoDB" {
+                tags "BaseDatos"
+            }
+
+            billingDB = container "Billing Database" "Almacena contratos, tarifas, facturas y pagos." "MongoDB" {
+                tags "BaseDatos"
+            }
+
+            administrationDB = container "Administration Database" "Almacena perfiles, organizaciones, sitios y estaciones." "MongoDB" {
+                tags "BaseDatos"
+            }
+
+            supportDB = container "Support & CRM Database" "Almacena tickets, incidencias y programas comerciales." "MongoDB" {
+                tags "BaseDatos"
+            }
+        }
+
+        recolector -> cleanMobile "Consulta estaciones, recibe alertas y registra recolecciones"
+        administrador -> webPlatform "Supervisa estaciones, configura umbrales y planifica rutas"
+        tecnico -> webPlatform "Diagnostica fallas y gestiona mantenimiento"
+        crmStaff -> webPlatform "Gestiona clientes, contratos e incidencias"
+
+        bscu -> edgeConnector "POST /data-records; recibe thresholdLedState en la respuesta" "HTTP/REST"
+        edgeConnector -> edgeGateway "Transmite registros de telemetria" "HTTPS/REST"
+
+        cleanMobile -> clientGateway "Consulta estaciones y registra operaciones" "HTTPS/REST"
+        webPlatform -> clientGateway "Consulta informacion y administra operaciones" "HTTPS/REST"
+
+        edgeGateway -> telemetryService "Entrega telemetria recibida desde las estaciones" "REST"
+
+        clientGateway -> collectionService "Consulta rutas, alertas y recolecciones" "REST"
+        clientGateway -> telemetryService "Consulta estados, mediciones y alarmas" "REST"
+        clientGateway -> billingService "Gestiona facturacion, contratos y pagos" "REST"
+        clientGateway -> administrationService "Gestiona usuarios, sitios y estaciones" "REST"
+        clientGateway -> supportService "Gestiona tickets, incidencias y CRM" "REST"
+
+        telemetryService -> collectionService "Notifica condiciones de llenado que requieren recoleccion" "REST"
+        telemetryService -> supportService "Notifica fallas y eventos de riesgo" "REST"
+        collectionService -> administrationService "Consulta estaciones, ubicaciones y asignaciones" "REST"
+        billingService -> administrationService "Consulta organizaciones y clientes" "REST"
+        supportService -> billingService "Consulta informacion contractual" "REST"
+
+        collectionService -> collectionDB "Lee y escribe datos de recoleccion" "MongoDB Driver"
+        telemetryService -> telemetryDB "Lee y escribe datos de telemetria" "MongoDB Driver"
+        billingService -> billingDB "Lee y escribe datos de facturacion" "MongoDB Driver"
+        administrationService -> administrationDB "Lee y escribe datos administrativos" "MongoDB Driver"
+        supportService -> supportDB "Lee y escribe datos de soporte y CRM" "MongoDB Driver"
+
+        clientGateway -> secureAuth "Valida identidad y permisos de acceso" "HTTPS/REST"
+        telemetryService -> iotCloud "Transmite telemetria para centralizacion y analisis" "HTTPS/REST"
+    }
+
+    views {
+
+        container sistema "BigbellyContainerDiagram" {
+            include *
+            autoLayout lr
+        }
+
+        styles {
+            element "Person" {
+                shape Person
+                background #084C61
+                color #FFFFFF
+            }
+
+            element "Software System" {
+                background #475569
+                color #FFFFFF
+            }
+
+            element "Externo" {
+                background #64748B
+                color #FFFFFF
+            }
+
+            element "Edge" {
+                background #0F766E
+                color #FFFFFF
+            }
+
+            element "Aplicacion" {
+                background #2563EB
+                color #FFFFFF
+            }
+
+            element "Gateway" {
+                background #7C3AED
+                color #FFFFFF
+            }
+
+            element "Servicio" {
+                background #0369A1
+                color #FFFFFF
+            }
+
+            element "BaseDatos" {
+                shape Cylinder
+                background #B45309
+                color #FFFFFF
+            }
+        }
+    }
+}

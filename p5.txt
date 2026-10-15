@@ -1,0 +1,265 @@
+
+
+@startuml
+title Diagrama de Clases - Aplicacion Embebida BSCU Bigbelly
+
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam linetype ortho
+left to right direction
+
+package "Framework ModestIoT" #E8EDF7 {
+
+    interface EventHandler {
+        +on(event: Event): void
+    }
+
+    interface CommandHandler {
+        +handle(command: Command): void
+    }
+
+    class Event <<struct>> {
+        +id: int
+    }
+
+    class Command <<struct>> {
+        +id: int
+    }
+
+    class Sensor {
+        #pin: int
+        #handler: EventHandler*
+        +on(event: Event): void
+        +setHandler(handler: EventHandler*): void
+    }
+
+    class Actuator {
+        #pin: int
+        #handler: CommandHandler*
+        +handle(command: Command): void
+        +setHandler(handler: CommandHandler*): void
+    }
+
+    abstract class Device {
+        +on(event: Event): void
+        +handle(command: Command): void
+    }
+
+    class Led {
+        -state: bool
+        +getState(): bool
+        +setState(state: bool): void
+        +handle(command: Command): void
+    }
+
+    Sensor ..|> EventHandler
+    Actuator ..|> CommandHandler
+    Device ..|> EventHandler
+    Device ..|> CommandHandler
+    Led --|> Actuator
+
+    EventHandler ..> Event
+    CommandHandler ..> Command
+}
+
+package "Firmware BSCU - Bigbelly" #E7F5EF {
+
+    enum StationMode {
+        STANDBY
+        ACTIVE_COMPACTING
+        MAINTENANCE
+        FAULT_RISK
+    }
+
+    class BigbellyStationControlUnit <<Device>> {
+        -stationId: String
+        -bscuId: String
+        -lastSampleAt: unsigned long
+        -lastTelemetryAt: unsigned long
+        -edgeRiskState: bool
+        +init(): void
+        +update(): void
+        +on(event: Event): void
+        +handle(command: Command): void
+        -sampleSensors(): void
+        -updateOperatingMode(): void
+        -updateDisplay(): void
+        -updateActuators(): void
+        -publishTelemetry(): void
+    }
+
+    class Dht22Sensor <<DHT22>> {
+        -temperatureC: float
+        -humidityPercent: float
+        -lastReadAt: unsigned long
+        +sample(): bool
+        +getTemperatureC(): float
+        +getHumidityPercent(): float
+    }
+
+    class UltrasonicFillSensor <<HC-SR04>> {
+        -triggerPin: int
+        -echoPin: int
+        -containerHeightCm: float
+        -distanceCm: float
+        +sample(): bool
+        +getDistanceCm(): float
+        +getFillLevelPercent(): float
+    }
+
+    class VibrationSensor <<SW-420>> {
+        -vibrationDetected: bool
+        -lastImpactAt: unsigned long
+        +sample(): bool
+        +isVibrationDetected(): bool
+        +clearDetection(): void
+    }
+
+    class AmbientLightSensor <<BH1750>> {
+        -i2cAddress: uint8_t
+        -lightLux: float
+        +sample(): bool
+        +getLightLux(): float
+    }
+
+    class Lcd1604Display {
+        -i2cAddress: uint8_t
+        -brightnessEnabled: bool
+        +init(): void
+        +handle(command: Command): void
+        +showMeasurements(record: TelemetryRecord): void
+        +showMode(mode: StationMode): void
+        +showMessage(message: String): void
+        +setBacklight(enabled: bool): void
+    }
+
+    class CompactorActuator {
+        -controlPin: int
+        -running: bool
+        +handle(command: Command): void
+        +startCompacting(): void
+        +stopCompacting(): void
+        +isRunning(): bool
+    }
+
+    class StationModeController {
+        -currentMode: StationMode
+        +getMode(): StationMode
+        +requestMode(mode: StationMode): bool
+        +enterFaultMode(): void
+        +canCompact(): bool
+    }
+
+    class SafetyController {
+        -localRiskDetected: bool
+        -edgeRiskDetected: bool
+        +evaluateLocalRisk(record: TelemetryRecord): bool
+        +applyEdgeDecision(state: bool): void
+        +isRiskActive(): bool
+    }
+
+    class TelemetryRecord <<struct>> {
+        +stationId: String
+        +bscuId: String
+        +temperatureC: float
+        +humidityPercent: float
+        +distanceCm: float
+        +fillLevelPercent: float
+        +vibrationDetected: bool
+        +lightLux: float
+        +mode: StationMode
+        +measuredAtMs: unsigned long
+    }
+
+    class EdgeResponse <<struct>> {
+        +thresholdLedState: bool
+    }
+
+    interface IEdgeConnectorClient {
+        +sendDataRecord(record: TelemetryRecord, response: EdgeResponse): bool
+    }
+
+    class EdgeConnectorClient {
+        -endpointUrl: String
+        -connected: bool
+        +connect(): bool
+        +sendDataRecord(record: TelemetryRecord, response: EdgeResponse): bool
+        +isConnected(): bool
+    }
+
+    class FirmwareUpdateManager {
+        -updateInProgress: bool
+        +checkForUpdate(): bool
+        +applyUpdate(): bool
+        +isUpdating(): bool
+    }
+
+    BigbellyStationControlUnit --|> Device
+
+    Dht22Sensor --|> Sensor
+    UltrasonicFillSensor --|> Sensor
+    VibrationSensor --|> Sensor
+    AmbientLightSensor --|> Sensor
+
+    Lcd1604Display --|> Actuator
+    CompactorActuator --|> Actuator
+
+    EdgeConnectorClient ..|> IEdgeConnectorClient
+
+    BigbellyStationControlUnit *-- "1" Dht22Sensor
+    BigbellyStationControlUnit *-- "1" UltrasonicFillSensor
+    BigbellyStationControlUnit *-- "1" VibrationSensor
+    BigbellyStationControlUnit *-- "1" AmbientLightSensor
+
+    BigbellyStationControlUnit *-- "1" Lcd1604Display
+    BigbellyStationControlUnit *-- "1" CompactorActuator
+    BigbellyStationControlUnit *-- "2" Led : powerLed / thresholdLed
+
+    BigbellyStationControlUnit *-- "1" StationModeController
+    BigbellyStationControlUnit *-- "1" SafetyController
+    BigbellyStationControlUnit *-- "1" FirmwareUpdateManager
+    BigbellyStationControlUnit o-- "1" IEdgeConnectorClient
+
+    BigbellyStationControlUnit ..> TelemetryRecord : crea
+    IEdgeConnectorClient ..> EdgeResponse : recibe
+    IEdgeConnectorClient ..> TelemetryRecord : envia
+
+    StationModeController --> StationMode
+    SafetyController ..> TelemetryRecord
+    FirmwareUpdateManager ..> StationModeController : verifica el modo
+}
+
+note right of EdgeConnectorClient
+  Envia las mediciones mediante
+  POST /data-records y obtiene
+  thresholdLedState de la
+  respuesta HTTP del Edge Connector.
+end note
+
+note right of CompactorActuator
+  Representa el control logico
+  del mecanismo de compactacion.
+
+  El caso no especifica el motor
+  ni el controlador fisico.
+end note
+
+note right of StationModeController
+  Administra los cuatro modos:
+  - Espera
+  - Actividad y compactacion
+  - Mantenimiento
+  - Fallo o riesgo
+
+  Restringe la compactacion
+  cuando el estado lo requiere.
+end note
+
+note right of SafetyController
+  Evalua riesgos locales y
+  decisiones del Edge Connector.
+
+  Una condicion critica puede
+  impedir la compactacion.
+end note
+@enduml

@@ -1,1 +1,119 @@
 caso caso : 
+
+Enunciado:
+Caso Bigbelly
+Bigbelly (https://bigbelly.com/) es una empresa líder mundial en soluciones inteligentes de residuos y reciclaje para
+espacios públicos. Diseñadas para integrarse en calles, campus universitarios, parques y complejos corporativos, las
+estaciones Bigbelly funcionan con energía solar, cuentan con sensores, compactan los residuos y comunican su
+estado en tiempo real. Son elegidas por municipalidades, universidades y operadores de espacios públicos por su
+gran capacidad de contención, su fiabilidad y la optimización de las operaciones de recolección.
+Tras años de evolución en la industria de la gestión inteligente de residuos, Bigbelly incorpora tecnologías avanzadas
+de compactación solar, monitoreo del nivel de llenado, alertas automáticas de recolección y protocolos de seguridad
+de vanguardia para proteger la infraestructura urbana y optimizar las rutas y frecuencias de recolección en tiempo
+real.
+Bigbelly Ecosystem & User Segments
+La plataforma de gestión de Bigbelly atiende a múltiples segmentos de usuarios con roles y necesidades
+especializadas a lo largo de todo el ecosistema:
+1. Personal de Recolección (End Users / Collection Crew): Utilizan la aplicación móvil CLEAN Mobile de
+Bigbelly (disponible en https://apps.apple.com/app/id530771826) para visualizar en mapa o lista el estado
+de las estaciones asignadas, recibir notificaciones automáticas cuando una estación requiere recolección,
+registrar las recolecciones realizadas, reportar incidencias en campo y apoyar la instalación y configuración
+de nuevas estaciones.
+2. Administradores Municipales y Propietarios de Sitios (Municipal / Site Operators): Utilizan la plataforma
+web corporativa para supervisar el nivel de llenado y el rendimiento de sus estaciones, configurar umbrales
+y reglas de notificación, programar rutas y frecuencias de recolección y analizar reportes de operación e
+historial de recolecciones.
+3. Personal de Soporte Técnico (Technical Support Staff): Acceden a la aplicación web de gestión para
+monitorear alarmas en tiempo real, diagnosticar fallas de hardware reportadas por las unidades
+(compactador, sensores, batería y panel solar), y gestionar órdenes de servicio o intervenciones físicas.
+4. Equipo de CRM y Operaciones Comerciales (CRM Staff): Gestionan las cuentas de municipalidades, campus
+y clientes corporativos, los contratos de servicio, los programas de sostenibilidad, las campañas de
+concientización y la atención de incidencias comerciales a través del panel administrativo central.
+Bigbelly Station Control Unit & Operation Modes
+En el corazón de cada estación de residuos se encuentra la Bigbelly Station Control Unit (BSCU). Dependiendo de la
+capacidad de la estación, esta puede tener una o más BSCU. Cada BSCU está conformada por un microcontrolador
+ESP32 (https://www.espressif.com/en/products/socs/esp32), un sensor digital de temperatura y humedad DHT22
+(https://www.espboards.dev/sensors/dht22/) para el monitoreo del compartimento interno del compactador y la
+batería, un sensor ultrasónico de distancia HC-SR04 (https://randomnerdtutorials.com/esp32-hc-sr04-ultrasonic-
+arduino/) para medir el nivel de llenado del contenedor, un sensor de vibración SW-420
+(https://handsontec.com/dataspecs/sensor/Vibration%20Sensor.pdf) para detectar vandalismo o impactos
+mecánicos, y un sensor de luz ambiental BH1750 (https://randomnerdtutorials.com/esp32-bh1750-ambient-light-
+sensor/) para regular la iluminación del panel y la pantalla. El dispositivo cuenta también con un display LCD 1604
+con interfaz I2C (https://randomnerdtutorials.com/esp32-esp8266-i2c-lcd-arduino-ide/) el cual presenta los valores
+de Temperatura en °C, % de Humedad, Nivel de llenado en %, Detección de vibración y nivel de luz actual.
+Asimismo, el firmware de la BSCU gestiona diferentes modos de operación según el estado de la estación:
+Página 3 de 7
+• Stand-By Mode: Modo de bajo consumo e inactividad donde la pantalla LCD muestra mensajes de
+disponibilidad de la estación y los sensores operan a intervalos extendidos de muestreo.
+• Active / Compacting Mode: Modo de alta actividad durante la recepción de residuos y los ciclos de
+compactación; los sensores transmiten telemetría en tiempo real y el display muestra el nivel de llenado y
+los parámetros de ambiente.
+• Maintenance Mode: Modo activado por el personal técnico o de recolección para realizar calibraciones,
+pruebas de hardware locales, vaciado y cambio de bolsas o actualizaciones de firmware vía red,
+deshabilitando temporalmente el ciclo de compactación.
+• Fault / Risk Mode: Modo de protección activado automáticamente al detectarse anomalías críticas
+(temperaturas fuera de rango, nivel de llenado crítico o vibraciones por intento de vandalismo); enciende
+el thresholdLed y restringe las operaciones de compactación hasta la intervención del sistema.
+El dispositivo cuenta con dos LEDs: uno de color verde (powerLed) para mostrar el estado de encendido (Power On
+/ Sistema Operativo), y otro de color rojo (thresholdLed) para mostrar el escenario de riesgo. El dispositivo se encarga
+también de enviar periódicamente un request con sus valores medidos hacia el endpoint REST /data-records en el
+Bigbelly Station Edge Connector (cada estación cuenta con un Edge Connector), el cual valida los umbrales
+(thresholds) y retorna como parte del response el atributo thresholdLedState (que puede ser 1 o 0), determinando
+si la BSCU debe o no encender el LED de riesgo.
+El Cloud Backend y Bounded Contexts (Guía de Diseño DDD)
+La implementación de la plataforma de gestión Bigbelly Station Management está basada en Domain-Driven Design
+(DDD), considerando un API Gateway y un microservicio por cada bounded context, utilizando MongoDB como
+tecnología de DBMS. Cada microservicio (implementado en Java con Spring Boot) mantiene conexión exclusiva con
+sus bases de datos.
+Para guiar la arquitectura de microservicios, se identifican típicamente los siguientes Bounded Contexts esenciales
+en el dominio:
+• Waste Collection & Route Management Context: Administra la recepción de residuos, los ciclos de
+compactación, las alertas de recolección y el cierre de las recolecciones de las estaciones.
+• Station & Telemetry Monitoring Context: Recibe y procesa los registros de telemetría de los Edge
+Connectors (temperatura, nivel de llenado, vibración, luz, modos de operación y validación de umbrales
+físicos).
+• Billing & Payment Context: Gestiona las tarifas del servicio, los contratos, el procesamiento de pagos y la
+facturación para municipalidades, campus y operadores.
+• User & Site Administration Context: Controla los perfiles de los usuarios (personal de recolección,
+administradores municipales y personal técnico), las organizaciones clientes y las jerarquías de sitios y
+estaciones.
+• Customer Support & CRM Context: Administra tickets de incidencias técnicas, reportes de vandalismo y
+programas de sostenibilidad y fidelización comercial.
+La estrategia de API Gateway contempla segmentación por tipo de cliente, teniendo un Gateway para recepcionar
+requests de los Edge Connectors y otro Gateway para las aplicaciones cliente. Los Gateways recepcionan las
+solicitudes de los Edge Connectors, de las aplicaciones web y de las aplicaciones móviles, para luego canalizarlas
+hacia los microservicios correspondientes.
+Para el Identity and Access Management de los usuarios, la plataforma utiliza la integración corporativa con el
+servicio Bigbelly SecureAuth. Para los procesos de monitoreo de dispositivos, utiliza la integración con el servicio
+corporativo Bigbelly IoT Cloud Connect. Los servicios Bigbelly SecureAuth y Bigbelly IoT Cloud Connect son sistemas
+preexistentes expuestos vía APIs RESTful. La información recibida por el API Gateway dedicado a los Edge Services
+Página 4 de 7
+es derivada al microservicio del bounded context correspondiente y luego transmitida al sistema Bigbelly IoT Cloud
+Connect para su centralización y análisis por el equipo de ingeniería e I+D de Bigbelly.
+Los representantes de Bigbelly, le solicitan que, bajo el marco de los 12 pasos del IoT System Design Steps (ver Anexo
+A), Domain-Driven Design y Software Architecture, elabore varios artefactos de documentación y arquitectura de
+software.
+En base al caso:
+Pregunta 1 (2 p.)
+Elabore el Definition of system requirements (los requisitos del sistema) en términos de Power Supply (Capacidades
+de suministro de energía) y restricciones de time-delay.
+Pregunta 2 (3 p.)
+Elabore el Definition of physical layer requirements (los requisitos para el Physical Layer de la IoT Solution).
+Considere: a) número y tipos de nodos sensores y actuators; b) Target uncertainty (incertidumbre objetivo),
+relacionada con las cantidades físicas medidas por cada sensor; c) Target accuracy and precision (Exactitud y
+precisión objetivo) de los actuadores; d) Processing Power (Esfuerzo computacional) para los algoritmos de
+procesamiento de datos que se implementarán en Edge node (y de ser aplicable en Fog node).
+Pregunta 3 (4 p.).
+Elabore el Definition of information layer requirements (requisitos de la capa de información). Considere: a)
+Definición de usuarios finales; b) Definición de número y tipos de servicios que deben proporcionarse a cada usuario
+final; c) Definición de las necesidades de información integrada para implementar cada servicio.
+Pregunta 4 (5 p.)
+Elabore un diagrama de Containers de C4 Model para su propuesta de solución. Explique y sustente sus decisiones
+de diseño.
+Pregunta 5 (6 p.)
+En base al caso, elabore un Class Diagram para el Object-Oriented Embedded Application para el Bigbelly Station
+Control Unit (BSCU). Bigbelly requiere que su diseño sea con nomenclatura en inglés, considere los atributos y
+métodos principales en las clases. Tome en cuenta también que, en base a su diseño, posteriormente otro equipo
+de desarrollo distinto estará encargado de realizar la implementación en Arduino Sketch con C++ (archivo .ino,
+junto con los archivos .h y .cpp que sean necesarios). Explique y sustente sus decisiones de diseño. Technical
+constraint: Base su propuesta Object-Oriented en la jerarquía de ModestIoT Framewor

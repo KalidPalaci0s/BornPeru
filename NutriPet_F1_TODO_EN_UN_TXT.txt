@@ -1,0 +1,397 @@
+NUTRIPET F1 - TODOS LOS ARCHIVOS EN UN SOLO TXT
+Copia unicamente el contenido entre INICIO y FIN para cada archivo.
+
+==============================================================================
+ARCHIVO: README.md
+==============================================================================
+========== INICIO README.md ==========
+# NutriPet FeedStation Node F1 — Study Reference
+
+This is a *practice reference*, not a finished assessed submission. The case prohibits agentic AI development during the evaluation. The author of this example has not executed an end-to-end Wokwi simulation, and values/API compatibility may require adjustment.
+
+## Files
+- `sketch.ino`: Device instantiation and inert loop.
+- `NutriPetDevice.h`: OOP sensor wrappers, state machine, Modest IoT device, framework ServoMotor and CharacterLcdDisplay, HX711, local TelemetryPackage serialization.
+- `diagram.json`: ESP32 + two HC-SR04 sensors + Wokwi HX711 5 kg + servo + I2C LCD.
+- `libraries.txt`: required libraries plus the HX711 dependency used in this example.
+
+## Architecture and state machine
+- MONITORING: normal; food <200g and pet <=20cm triggers dispensing.
+- DISPENSING: servo open; close when >=800g; loses precedence to EMPTY or SENSOR_FAULT.
+- EMPTY: tank 0% causes servo lock and LCD `Water: Empty`.
+- SENSOR_FAULT: invalid water or weight reading safely closes servo.
+- Telemetry prints JSON to serial; it is not sent over MQTT, because no broker or endpoint is provided.
+
+## Testing steps in Wokwi
+1. Create new ESP32 Arduino project, add these four files using the file editor.
+2. Start simulation and inspect Serial Monitor for the startup banner and JSON records.
+3. Set WATER HC-SR04 distance = 4 cm, PET HC-SR04 distance = 100 cm, HX711 load = 0.1 kg (100 g). Expected MONITORING and closed servo.
+4. Set PET sensor distance = 15 cm. Expected DISPENSING, open servo, cycle counter increments.
+5. Manually increase the HX711 simulated load to 0.8 kg (800 g). Expected MONITORING and closed servo.
+6. Set water sensor to 30 cm. Expected EMPTY and disabled dispensing.
+7. Refill to 4 cm, lower load to 0.1 kg and ensure pet proximity. Expected restart of dispensing.
+
+Wokwi servo movement does NOT physically increase the HX711 load. Change the HX711 load interactively. The HX711 library uses a Wokwi-specific preliminary scale factor (0.42 raw counts/gram for 5kg) which may need adjustment. Real hardware would require zeroing and calibration with reference weights.
+
+## Requirements versus assumptions
+- Given: water tank 30 cm height, 2500 mL, ultrasonic reads 4 cm when full; pet threshold <=20 cm; dispensing starts under 200g and stops at 800g; LCD and tracking requirements.
+- Assumed: at water-empty, ultrasonic reads 30 cm; tank is uniform in cross-section for linear percentage and estimated milliliters; sample interval 1 second; closed servo 0° and open 180°; fail-safe on missing sensor readings; dispensing continues if pet leaves.
+- Local JSON telemetry demonstrates the TelemetryPackage class, but a configured remote gateway, persistent history and real-time mobile app are not in this prototype.
+
+## Notes for physical deployment
+- HC-SR04 ECHO is nominally 5V and needs suitable level shifting for 3.3V ESP32 GPIO on real hardware.
+- A real servo needs appropriate external power and common ground, rather than a direct high-load feed from the microcontroller.
+- The approximate Wokwi raw-value conversion is not physical sensor calibration.
+========== FIN README.md ==========
+
+==============================================================================
+ARCHIVO: libraries.txt
+==============================================================================
+========== INICIO libraries.txt ==========
+# Wokwi Library List
+# https://docs.wokwi.com/guides/libraries
+ArduinoJson
+MQTT
+Modest-IoT-Nano-Framework
+HX711
+========== FIN libraries.txt ==========
+
+==============================================================================
+ARCHIVO: diagram.json
+==============================================================================
+========== INICIO diagram.json ==========
+{
+  "version": 1,
+  "author": "NutriPet F1 practice reference",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 20, "left": 160, "attrs": {} },
+    { "type": "wokwi-hc-sr04", "id": "water", "top": -150, "left": -150, "attrs": {"distance":"4"} },
+    { "type": "wokwi-hc-sr04", "id": "pet", "top": -150, "left": 390, "attrs": {"distance":"100"} },
+    { "type": "wokwi-hx711", "id": "weight", "top": 240, "left": -120, "attrs": {"type":"5kg"} },
+    { "type": "wokwi-servo", "id": "servo", "top": 245, "left": 435, "attrs": {} },
+    { "type": "wokwi-lcd1602", "id": "lcd", "top": 420, "left": 120, "attrs": {"pins":"i2c"} }
+  ],
+  "connections": [
+    ["water:VCC", "esp:5V", "red", []],
+    ["water:GND", "esp:GND.1", "black", []],
+    ["water:TRIG", "esp:4", "green", []],
+    ["water:ECHO", "esp:16", "blue", []],
+    ["pet:VCC", "esp:5V", "red", []],
+    ["pet:GND", "esp:GND.1", "black", []],
+    ["pet:TRIG", "esp:17", "green", []],
+    ["pet:ECHO", "esp:5", "blue", []],
+    ["weight:VCC", "esp:5V", "red", []],
+    ["weight:GND", "esp:GND.1", "black", []],
+    ["weight:DT", "esp:32", "green", []],
+    ["weight:SCK", "esp:33", "blue", []],
+    ["servo:V+", "esp:5V", "red", []],
+    ["servo:GND", "esp:GND.1", "black", []],
+    ["servo:PWM", "esp:13", "orange", []],
+    ["lcd:VCC", "esp:5V", "red", []],
+    ["lcd:GND", "esp:GND.1", "black", []],
+    ["lcd:SDA", "esp:21", "green", []],
+    ["lcd:SCL", "esp:22", "blue", []]
+  ],
+  "dependencies": {}
+}
+========== FIN diagram.json ==========
+
+==============================================================================
+ARCHIVO: NutriPetDevice.h
+==============================================================================
+========== INICIO NutriPetDevice.h ==========
+#ifndef NUTRIPET_DEVICE_H
+#define NUTRIPET_DEVICE_H
+/**
+ * @file NutriPetDevice.h
+ * @brief Object-oriented pet feeder prototype using Modest IoT Nano Framework.
+ * @note This is a practice model, not a validated physical device.
+ */
+#include <Arduino.h>
+#include <ModestIoT.h>
+#include <HX711.h>
+#include <ArduinoJson.h>
+#include <cmath>
+
+namespace NutriPetConfig {
+  constexpr int WATER_TRIG_PIN = 4;
+  constexpr int WATER_ECHO_PIN = 16;
+  constexpr int PET_TRIG_PIN = 17;
+  constexpr int PET_ECHO_PIN = 5;
+  constexpr int SERVO_PIN = 13;
+  constexpr int HX711_DT_PIN = 32;
+  constexpr int HX711_SCK_PIN = 33;
+  constexpr int LCD_ADDRESS = 0x27;
+  constexpr int LCD_COLUMNS = 16;
+  constexpr int LCD_ROWS = 2;
+  constexpr float FULL_DISTANCE_CM = 4.0f;
+  constexpr float EMPTY_DISTANCE_CM = 30.0f; // Assumption: distance at empty bottom.
+  constexpr float WATER_CAPACITY_ML = 2500.0f;
+  constexpr float PROXIMITY_THRESHOLD_CM = 20.0f;
+  constexpr float PLATE_CAPACITY_GRAMS = 1000.0f;
+  constexpr float DISPENSE_START_GRAMS = 200.0f;
+  constexpr float DISPENSE_STOP_GRAMS = 800.0f;
+  constexpr float HX711_SIM_RAW_PER_GRAM = 0.42f; // Wokwi 5kg: ~2100 raw/5000g.
+  constexpr unsigned long ULTRASONIC_TIMEOUT_US = 30000UL;
+  constexpr unsigned long SAMPLE_INTERVAL_MS = 1000UL;
+  constexpr int SAMPLING_EVENT = 1001;
+  constexpr uint8_t QUEUE_LENGTH = 10;
+  constexpr int LCD_LINE_CHARS = 17;
+}
+
+/** @brief Wraps an HC-SR04 sensor and converts echo duration to centimeters. */
+class UltrasonicSensor {
+  int triggerPin;
+  int echoPin;
+public:
+  UltrasonicSensor(int trigger, int echo) : triggerPin(trigger), echoPin(echo) {}
+  void begin() {
+    pinMode(triggerPin, OUTPUT);
+    pinMode(echoPin, INPUT);
+    digitalWrite(triggerPin, LOW);
+  }
+  /** @return Distance in cm, or NAN when no echo arrives. */
+  float distanceCm() {
+    digitalWrite(triggerPin, LOW);
+    delayMicroseconds(2);
+    digitalWrite(triggerPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(triggerPin, LOW);
+    unsigned long duration = pulseIn(echoPin, HIGH, NutriPetConfig::ULTRASONIC_TIMEOUT_US);
+    return duration == 0 ? NAN : duration * 0.0343f / 2.0f;
+  }
+};
+
+/** @brief Converts tank top-sensor distance into normalized water percentage. */
+class WaterLevelSensor {
+  UltrasonicSensor sensor;
+public:
+  WaterLevelSensor() : sensor(NutriPetConfig::WATER_TRIG_PIN, NutriPetConfig::WATER_ECHO_PIN) {}
+  void begin() { sensor.begin(); }
+  /** @return Water percentage or NAN if the sensor times out. */
+  float percentage() {
+    float distance = sensor.distanceCm();
+    if (isnan(distance)) return NAN;
+    float pct = (NutriPetConfig::EMPTY_DISTANCE_CM - distance) * 100.0f /
+      (NutriPetConfig::EMPTY_DISTANCE_CM - NutriPetConfig::FULL_DISTANCE_CM);
+    return constrain(pct, 0.0f, 100.0f);
+  }
+};
+
+/** @brief Detects an animal or person near the food plate. */
+class PetProximitySensor {
+  UltrasonicSensor sensor;
+public:
+  PetProximitySensor() : sensor(NutriPetConfig::PET_TRIG_PIN, NutriPetConfig::PET_ECHO_PIN) {}
+  void begin() { sensor.begin(); }
+  bool detected() {
+    float distance = sensor.distanceCm();
+    return !isnan(distance) && distance <= NutriPetConfig::PROXIMITY_THRESHOLD_CM;
+  }
+};
+
+/** @brief Reads simulated gram values from the Wokwi 5 kg HX711. */
+class FoodWeightSensor {
+  HX711 amplifier;
+public:
+  void begin() {
+    amplifier.begin(NutriPetConfig::HX711_DT_PIN, NutriPetConfig::HX711_SCK_PIN);
+    // A real device requires physical calibration and tare.
+    // Wokwi's 5 kg part reports approximately 0..2100 raw counts for 0..5 kg.
+  }
+  /** @return Plate food weight in grams; NAN if HX711 is not ready. */
+  float grams() {
+    if (!amplifier.is_ready()) return NAN;
+    float reading = amplifier.get_value(1) / NutriPetConfig::HX711_SIM_RAW_PER_GRAM;
+    return constrain(reading, 0.0f, 5000.0f);
+  }
+};
+
+enum class FeedMode { MONITORING, DISPENSING, EMPTY, SENSOR_FAULT };
+
+/** @brief Concrete framework telemetry record for local tracking. */
+class FeedTelemetryPackage : public TelemetryPackage {
+public:
+  float waterPct;
+  float foodGrams;
+  bool petPresent;
+  uint32_t dispenseCycles;
+  const char* mode;
+  FeedTelemetryPackage(float water, float food, bool pet, uint32_t cycles, const char* state)
+    : waterPct(water), foodGrams(food), petPresent(pet), dispenseCycles(cycles), mode(state) {}
+  void serialize(JsonDocument& destination) const override {
+    destination["waterPercent"] = waterPct;
+    destination["foodGrams"] = foodGrams;
+    destination["petPresent"] = petPresent;
+    destination["dispensingCycles"] = dispenseCycles;
+    destination["mode"] = mode;
+    destination["waterMilliliters"] = waterPct * NutriPetConfig::WATER_CAPACITY_ML / 100.0f;
+  }
+};
+
+/**
+ * @brief Coordinates sensors, framework-managed actuators, the state machine and telemetry.
+ * @details This device inherits the framework Device and receives periodic scheduler events.
+ */
+class NutriPetDevice : public Device {
+  WaterLevelSensor water;
+  PetProximitySensor proximity;
+  FoodWeightSensor weight;
+  ServoMotor gate;
+  CharacterLcdDisplay display;
+  FeedMode currentMode;
+  float waterPercent;
+  float foodGrams;
+  bool petPresent;
+  bool previousPetPresent;
+  uint32_t cycles;
+  uint32_t telemetrySequence;
+
+  static const char* label(FeedMode mode) {
+    switch (mode) {
+      case FeedMode::MONITORING: return "MONITORING";
+      case FeedMode::DISPENSING: return "DISPENSING";
+      case FeedMode::EMPTY: return "EMPTY";
+      case FeedMode::SENSOR_FAULT: return "SENSOR_FAULT";
+      default: return "UNKNOWN";
+    }
+  }
+
+  void changeMode(FeedMode next) {
+    if (next == currentMode) return;
+    Serial.printf("[Transition] %s -> %s\n", label(currentMode), label(next));
+    if (next == FeedMode::DISPENSING) {
+      ++cycles;
+      Serial.printf("[Dispense] Cycle %lu started\n", static_cast<unsigned long>(cycles));
+    }
+    if (currentMode == FeedMode::DISPENSING && next != FeedMode::DISPENSING)
+      Serial.println("[Dispense] Gate closed; cycle ended");
+    currentMode = next;
+  }
+
+  void readInputs() {
+    waterPercent = water.percentage();
+    foodGrams = weight.grams();
+    petPresent = proximity.detected();
+    if (previousPetPresent != petPresent) {
+      Serial.printf("[Proximity] %s\n", petPresent ? "Detected" : "No longer detected");
+      previousPetPresent = petPresent;
+    }
+  }
+
+  void evaluate() {
+    // Fail closed: invalid critical readings must not activate the motor.
+    if (isnan(waterPercent) || isnan(foodGrams)) {
+      changeMode(FeedMode::SENSOR_FAULT);
+    } else if (waterPercent <= 0.0f) {
+      changeMode(FeedMode::EMPTY);
+    } else if (currentMode == FeedMode::DISPENSING) {
+      if (foodGrams >= NutriPetConfig::DISPENSE_STOP_GRAMS)
+        changeMode(FeedMode::MONITORING);
+    } else if (petPresent && foodGrams < NutriPetConfig::DISPENSE_START_GRAMS) {
+      changeMode(FeedMode::DISPENSING);
+    } else {
+      changeMode(FeedMode::MONITORING);
+    }
+    // Always apply the output, including after recovery from fault or Empty.
+    if (currentMode == FeedMode::DISPENSING)
+      gate.handle(ServoMotor::LOCK_TO_MAXIMUM_LIMIT_COMMAND);
+    else
+      gate.handle(ServoMotor::LOCK_TO_MINIMUM_LIMIT_COMMAND);
+  }
+
+  void updateDisplay() {
+    char line1[NutriPetConfig::LCD_LINE_CHARS];
+    char line2[NutriPetConfig::LCD_LINE_CHARS];
+    if (currentMode == FeedMode::EMPTY) {
+      snprintf(line1, sizeof(line1), "Water: Empty");
+    } else if (currentMode == FeedMode::SENSOR_FAULT) {
+      snprintf(line1, sizeof(line1), "Sensor error");
+    } else {
+      snprintf(line1, sizeof(line1), "Water: %3d%%", static_cast<int>(waterPercent));
+    }
+    snprintf(line2, sizeof(line2), "Food: %4dg %c", isnan(foodGrams) ? 0 : static_cast<int>(foodGrams),
+       currentMode == FeedMode::DISPENSING ? 'D' : ' ');
+    display.setLineBuffer(0, line1);
+    display.setLineBuffer(1, line2);
+    display.handle(CharacterLcdDisplay::UPDATE_TEXT_COMMAND);
+  }
+
+  void recordTelemetry() {
+    // Local telemetry: no gateway endpoint is specified by the assignment.
+    FeedTelemetryPackage record(isnan(waterPercent) ? -1.0f : waterPercent,
+      isnan(foodGrams) ? -1.0f : foodGrams, petPresent, cycles, label(currentMode));
+    record.setEnvelopeMetadata(millis(), ++telemetrySequence);
+    Serial.print("[Telemetry] ");
+    Serial.println(record.toJsonString());
+  }
+
+public:
+  NutriPetDevice()
+    : Device(NutriPetConfig::SAMPLE_INTERVAL_MS, 0),
+      gate(NutriPetConfig::SERVO_PIN, 0, this),
+      display(NutriPetConfig::LCD_ADDRESS, NutriPetConfig::LCD_COLUMNS,
+              NutriPetConfig::LCD_ROWS, true, this),
+      currentMode(FeedMode::MONITORING), waterPercent(NAN), foodGrams(NAN),
+      petPresent(false), previousPetPresent(false), cycles(0), telemetrySequence(0) {}
+
+  /** @brief Initializes components and starts the Modest IoT asynchronous scheduler. */
+  void begin() {
+    Serial.println("========================================");
+    Serial.println("Company: NutriPet");
+    Serial.println("Product: FeedStation Node F1");
+    Serial.println("Developer: Practice Reference");
+    Serial.println("========================================");
+    water.begin();
+    proximity.begin();
+    weight.begin();
+    display.handle(CharacterLcdDisplay::TURN_BACKLIGHT_ON_COMMAND);
+    gate.handle(ServoMotor::LOCK_TO_MINIMUM_LIMIT_COMMAND);
+    display.setLineBuffer(0, "NutriPet F1");
+    display.setLineBuffer(1, "Initializing...");
+    display.handle(CharacterLcdDisplay::UPDATE_TEXT_COMMAND);
+    // Framework v1.1.2: register BEFORE launching engine.
+    bool registered = appendSensorToScheduler(this, NutriPetConfig::SAMPLING_EVENT,
+                                              NutriPetConfig::SAMPLE_INTERVAL_MS);
+    if (!registered) Serial.println("[ERROR] Scheduler registration failed");
+    initializeAsynchronousEngine(NutriPetConfig::QUEUE_LENGTH);
+  }
+
+  /** @brief Framework event handler: no business logic runs in Arduino loop(). */
+  void on(Event event) override {
+    if (event.identifier != NutriPetConfig::SAMPLING_EVENT) return;
+    readInputs();
+    evaluate();
+    updateDisplay();
+    recordTelemetry();
+  }
+};
+#endif
+========== FIN NutriPetDevice.h ==========
+
+==============================================================================
+ARCHIVO: sketch.ino
+==============================================================================
+========== INICIO sketch.ino ==========
+/**
+ * @file sketch.ino
+ * @brief Minimal Arduino entry point for NutriPet F1.
+ * @author Practice reference implementation
+ */
+#include "NutriPetDevice.h"
+
+NutriPetDevice* device = nullptr;
+
+void setup() {
+  Serial.begin(115200);
+  device = new NutriPetDevice();
+  device->begin();
+}
+
+void loop() {
+  // Modest IoT handles work through its asynchronous scheduler.
+  vTaskDelay(pdMS_TO_TICKS(60000));
+}
+========== FIN sketch.ino ==========
+
